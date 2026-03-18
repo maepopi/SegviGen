@@ -128,6 +128,6 @@ Users must comply with the licensing requirements of [TRELLIS.2](https://github.
       title = {SegviGen: Repurposing 3D Generative Model for Part Segmentation}, 
       author = {Lin Li and Haoran Feng and Zehuan Huang and Haohua Chen and Wenbo Nie and Shaohua Hou and Keqing Fan and Pan Hu and Sheng Wang and Buyu Li and Lu Sheng},
       journal = {arXiv preprint arXiv:2603.16869},
-      year = {2026},
-``` 
+      year = {2026}
 }
+``` 
