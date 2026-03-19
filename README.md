@@ -49,7 +49,7 @@ pip install gradio==6.0.1
 ### Running the UI
 
 ```sh
-conda activate trellis2_fix   # or your equivalent Python 3.11 env
+conda activate trellis2   # or your equivalent Python 3.11 env
 python app.py
 # → http://localhost:7860
 ```

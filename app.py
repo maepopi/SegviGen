@@ -29,6 +29,18 @@ import gradio as gr
 # ─── Global model cache ────────────────────────────────────────────────────────
 _loaded_models = {}
 
+# ─── VRAM helpers — keep peak usage under 12 GB by offloading models ──────────
+
+def _to_cuda(model):
+    """Move a model to GPU."""
+    return model.cuda()
+
+def _offload(model):
+    """Move a model to CPU and free cached VRAM."""
+    model.cpu()
+    torch.cuda.empty_cache()
+    return model
+
 # ─── Shared utilities (identical in both inference scripts) ────────────────────
 
 def make_texture_square_pow2(img: Image.Image, target_size=None):
@@ -127,18 +139,29 @@ def vxz_to_latent_slat(shape_encoder, shape_decoder, tex_encoder, vxz_path):
                              data['intersected'] // 4 % 2], dim=-1).bool().cuda()
     vertices_sparse = sp.SparseTensor(vertices, coords)
     intersected_sparse = sp.SparseTensor(intersected.float(), coords)
+    _to_cuda(shape_encoder)
     with torch.no_grad():
         shape_slat = shape_encoder(vertices_sparse, intersected_sparse)
         shape_slat = sp.SparseTensor(shape_slat.feats.cuda(), shape_slat.coords.cuda())
+    _offload(shape_encoder)
+
+    _to_cuda(shape_decoder)
+    with torch.no_grad():
         shape_decoder.set_resolution(512)
         meshes, subs = shape_decoder(shape_slat, return_subs=True)
+    _offload(shape_decoder)
+
     base_color = (data['base_color'] / 255)
     metallic = (data['metallic'] / 255)
     roughness = (data['roughness'] / 255)
     alpha = (data['alpha'] / 255)
     attr = torch.cat([base_color, metallic, roughness, alpha], dim=-1).float().cuda() * 2 - 1
+
+    _to_cuda(tex_encoder)
     with torch.no_grad():
         tex_slat = tex_encoder(sp.SparseTensor(attr, coords))
+    _offload(tex_encoder)
+
     return shape_slat, meshes, subs, tex_slat
 
 
@@ -481,17 +504,15 @@ def load_base_models():
 
     print("Loading base models (TRELLIS.2-4B) …")
     shape_encoder = models.from_pretrained(
-        "microsoft/TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16").cuda().eval()
+        "microsoft/TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16").eval()
     tex_encoder = models.from_pretrained(
-        "microsoft/TRELLIS.2-4B/ckpts/tex_enc_next_dc_f16c32_fp16").cuda().eval()
+        "microsoft/TRELLIS.2-4B/ckpts/tex_enc_next_dc_f16c32_fp16").eval()
     shape_decoder = models.from_pretrained(
-        "microsoft/TRELLIS.2-4B/ckpts/shape_dec_next_dc_f16c32_fp16").cuda().eval()
+        "microsoft/TRELLIS.2-4B/ckpts/shape_dec_next_dc_f16c32_fp16").eval()
     tex_decoder = models.from_pretrained(
-        "microsoft/TRELLIS.2-4B/ckpts/tex_dec_next_dc_f16c32_fp16").cuda().eval()
+        "microsoft/TRELLIS.2-4B/ckpts/tex_dec_next_dc_f16c32_fp16").eval()
     rembg_model = BiRefNet(model_name="briaai/RMBG-2.0")
-    rembg_model.cuda()
     image_cond_model = DinoV3FeatureExtractor(model_name="facebook/dinov3-vitl16-pretrain-lvd1689m")
-    image_cond_model.cuda()
 
     pipeline_json_path = hf_hub_download(repo_id="microsoft/TRELLIS.2-4B", filename="pipeline.json")
     with open(pipeline_json_path, "r") as f:
@@ -531,7 +552,7 @@ def load_seg_model(ckpt_path: str, mode: str):
     state_dict = torch.load(ckpt_path)['state_dict']
     state_dict = OrderedDict([(k.replace("gen3dseg.", ""), v) for k, v in state_dict.items()])
     gen3dseg.load_state_dict(state_dict)
-    gen3dseg.eval().cuda()
+    gen3dseg.eval()
 
     _loaded_models[cache_key] = gen3dseg
     print("Segmentation model loaded.")
@@ -579,8 +600,12 @@ def run_interactive(
     if rendered_img is not None:
         img_path = rendered_img
     image = Image.open(img_path)
+    _to_cuda(base['rembg_model'])
     image = preprocess_image(base['rembg_model'], image)
+    _offload(base['rembg_model'])
+    _to_cuda(base['image_cond_model'])
     cond = get_cond(base['image_cond_model'], [image])
+    _offload(base['image_cond_model'])
 
     # Parse points
     flat = [int(v) for v in points_str.split()]
@@ -592,9 +617,11 @@ def run_interactive(
     vxz_points_coords = torch.tensor(input_vxz_points_list, dtype=torch.int32).cuda()
     vxz_points_coords = torch.cat(
         [torch.zeros((vxz_points_coords.shape[0], 1), dtype=torch.int32).cuda(), vxz_points_coords], dim=1)
+    _to_cuda(base['tex_encoder'])
     input_points_coords = base['tex_encoder'](
         sp.SparseTensor(torch.zeros((vxz_points_coords.shape[0], 6), dtype=torch.float32).cuda(),
                         vxz_points_coords)).coords
+    _offload(base['tex_encoder'])
     input_points_coords = torch.unique(input_points_coords, dim=0)
     point_num = input_points_coords.shape[0]
     if point_num >= 10:
@@ -622,12 +649,16 @@ def run_interactive(
     tex_slat_n = (tex_slat - tex_mean) / tex_std
     coords_len_list = [shape_slat_n.coords.shape[0]]
     noise = sp.SparseTensor(torch.randn_like(tex_slat_n.feats), shape_slat_n.coords)
+    _to_cuda(gen3dseg)
     output_tex_slat = sampler.sample(gen3dseg, noise, tex_slat_n, shape_slat_n,
                                       input_points, coords_len_list, cond, sampler_params)
+    _offload(gen3dseg)
     output_tex_slat = output_tex_slat * tex_std + tex_mean
 
+    _to_cuda(base['tex_decoder'])
     with torch.no_grad():
         tex_voxels = base['tex_decoder'](output_tex_slat, guide_subs=subs) * 0.5 + 0.5
+    _offload(base['tex_decoder'])
 
     print("Exporting GLB …")
     glb = slat_to_glb(meshes, tex_voxels, decimation_target=int(decimation_target),
@@ -664,8 +695,12 @@ def run_full(
     if rendered_img is not None:
         img_path = rendered_img
     image = Image.open(img_path)
+    _to_cuda(base['rembg_model'])
     image = preprocess_image(base['rembg_model'], image)
+    _offload(base['rembg_model'])
+    _to_cuda(base['image_cond_model'])
     cond = get_cond(base['image_cond_model'], [image])
+    _offload(base['image_cond_model'])
 
     sampler_params = build_sampler_params(
         base['pipeline_args'], steps, rescale_t, guidance_strength,
@@ -682,12 +717,16 @@ def run_full(
     tex_slat_n = (tex_slat - tex_mean) / tex_std
     coords_len_list = [shape_slat_n.coords.shape[0]]
     noise = sp.SparseTensor(torch.randn_like(tex_slat_n.feats), shape_slat_n.coords)
+    _to_cuda(gen3dseg)
     output_tex_slat = sampler.sample(gen3dseg, noise, tex_slat_n, shape_slat_n,
                                       coords_len_list, cond, sampler_params)
+    _offload(gen3dseg)
     output_tex_slat = output_tex_slat * tex_std + tex_mean
 
+    _to_cuda(base['tex_decoder'])
     with torch.no_grad():
         tex_voxels = base['tex_decoder'](output_tex_slat, guide_subs=subs) * 0.5 + 0.5
+    _offload(base['tex_decoder'])
 
     print("Exporting GLB …")
     glb = slat_to_glb(meshes, tex_voxels, decimation_target=int(decimation_target),
@@ -719,8 +758,12 @@ def run_full_2d(
 
     print("Processing 2D guidance map …")
     image = Image.open(guidance_img)
+    _to_cuda(base['rembg_model'])
     image = preprocess_image(base['rembg_model'], image)
+    _offload(base['rembg_model'])
+    _to_cuda(base['image_cond_model'])
     cond = get_cond(base['image_cond_model'], [image])
+    _offload(base['image_cond_model'])
 
     sampler_params = build_sampler_params(
         base['pipeline_args'], steps, rescale_t, guidance_strength,
@@ -737,12 +780,16 @@ def run_full_2d(
     tex_slat_n = (tex_slat - tex_mean) / tex_std
     coords_len_list = [shape_slat_n.coords.shape[0]]
     noise = sp.SparseTensor(torch.randn_like(tex_slat_n.feats), shape_slat_n.coords)
+    _to_cuda(gen3dseg)
     output_tex_slat = sampler.sample(gen3dseg, noise, tex_slat_n, shape_slat_n,
                                       coords_len_list, cond, sampler_params)
+    _offload(gen3dseg)
     output_tex_slat = output_tex_slat * tex_std + tex_mean
 
+    _to_cuda(base['tex_decoder'])
     with torch.no_grad():
         tex_voxels = base['tex_decoder'](output_tex_slat, guide_subs=subs) * 0.5 + 0.5
+    _offload(base['tex_decoder'])
 
     print("Exporting GLB …")
     glb = slat_to_glb(meshes, tex_voxels, decimation_target=int(decimation_target),
@@ -817,7 +864,7 @@ with gr.Blocks(title="SegviGen — 3D Part Segmentation") as demo:
 
                     gr.Markdown("#### Export parameters")
                     i_decimation = gr.Number(value=100000, label="Decimation target (faces)")
-                    i_tex_size = gr.Dropdown([512, 1024, 2048, 4096], value=4096, label="Texture size (px)")
+                    i_tex_size = gr.Dropdown([512, 1024, 2048, 4096], value=1024, label="Texture size (px)")
                     i_remesh = gr.Checkbox(value=True, label="Remesh")
                     i_remesh_band = gr.Slider(0, 4, value=1, step=1, label="Remesh band")
                     i_remesh_proj = gr.Slider(0, 4, value=0, step=1, label="Remesh project")
@@ -863,7 +910,7 @@ with gr.Blocks(title="SegviGen — 3D Part Segmentation") as demo:
 
                     gr.Markdown("#### Export parameters")
                     f_decimation = gr.Number(value=100000, label="Decimation target (faces)")
-                    f_tex_size = gr.Dropdown([512, 1024, 2048, 4096], value=4096, label="Texture size (px)")
+                    f_tex_size = gr.Dropdown([512, 1024, 2048, 4096], value=1024, label="Texture size (px)")
                     f_remesh = gr.Checkbox(value=True, label="Remesh")
                     f_remesh_band = gr.Slider(0, 4, value=1, step=1, label="Remesh band")
                     f_remesh_proj = gr.Slider(0, 4, value=0, step=1, label="Remesh project")
@@ -907,7 +954,7 @@ with gr.Blocks(title="SegviGen — 3D Part Segmentation") as demo:
 
                     gr.Markdown("#### Export parameters")
                     t_decimation = gr.Number(value=100000, label="Decimation target (faces)")
-                    t_tex_size = gr.Dropdown([512, 1024, 2048, 4096], value=4096, label="Texture size (px)")
+                    t_tex_size = gr.Dropdown([512, 1024, 2048, 4096], value=1024, label="Texture size (px)")
                     t_remesh = gr.Checkbox(value=True, label="Remesh")
                     t_remesh_band = gr.Slider(0, 4, value=1, step=1, label="Remesh band")
                     t_remesh_proj = gr.Slider(0, 4, value=0, step=1, label="Remesh project")
