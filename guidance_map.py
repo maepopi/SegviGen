@@ -471,16 +471,19 @@ def run_pixmesh(
     if not selected:
         raise ValueError(f"No valid views in grid_views={grid_views}.")
 
-    # Always render the union of generation views + describe views so we
-    # load the scene only once.
+    # Read the main-view matrix from transforms.json so we can render it in
+    # the same scene-loading pass as the canonical views.
+    with open(transforms_path) as _f:
+        _t = json.load(_f)[0]
+    cameras["main"] = _t["transform_matrix"]
+
+    # Always render the union of describe views + main view in one pass.
     _DESCRIBE_VIEWS = ("front", "back", "left", "right")
-    all_views_needed = dict.fromkeys(list(_DESCRIBE_VIEWS) + list(grid_views))  # ordered, deduped
+    all_views_needed = dict.fromkeys(list(_DESCRIBE_VIEWS) + ["main"])  # ordered, deduped
     all_cameras = {v: cameras[v] for v in all_views_needed if v in cameras}
 
     print(f"Pixmesh grid [1/3]: rendering {len(all_cameras)} views …")
     all_images = _render_views_bpy(glb_path, all_cameras, resolution=resolution)
-    # Split: views used for generation vs. those only needed for description
-    view_images = {v: all_images[v] for v in grid_views if v in all_images}
 
     # Describe from a fixed 4-view 2×2 grid for consistent full-object context
     describe_views_present = [v for v in _DESCRIBE_VIEWS if v in all_images]
@@ -498,10 +501,9 @@ def run_pixmesh(
     updated_desc, color_table = _assign_palette(description)
     print(f"  → {len(color_table)} parts: {', '.join(color_table.keys())}")
 
-    # Generate segmentation from a single clean view so SegviGen receives an
-    # in-distribution input (same format as single-view mode).  The multi-view
-    # grid was only useful for the describe step above.
-    gen_view = "front" if "front" in all_images else describe_views_present[0]
+    # Generate segmentation from the main transforms.json view so the output
+    # matches the angle SegviGen was conditioned on.
+    gen_view = "main"
     pov_visibility = _compute_pov_visibility(color_table)
 
     print(f"Pixmesh grid [3/3]: generating segmentation from '{gen_view}' view …")
