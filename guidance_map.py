@@ -498,39 +498,22 @@ def run_pixmesh(
     updated_desc, color_table = _assign_palette(description)
     print(f"  → {len(color_table)} parts: {', '.join(color_table.keys())}")
 
+    # Generate segmentation from a single clean view so SegviGen receives an
+    # in-distribution input (same format as single-view mode).  The multi-view
+    # grid was only useful for the describe step above.
+    gen_view = "front" if "front" in all_images else describe_views_present[0]
     pov_visibility = _compute_pov_visibility(color_table)
 
-    print(f"Pixmesh grid [3/3]: generating segmentation for {len(view_images)} views (parallel) …")
-
-    def _gen_view(view_name, img):
-        print(f"  [{view_name}] generating …")
-        seg = _gemini_generate_segmentation(
-            img, updated_desc, color_table,
-            api_key=gemini_api_key, model=generate_model,
-            image_size=(resolution, resolution), bg_color_hex=bg_hex,
-            view_name=view_name, pov_visibility=pov_visibility,
-        )
-        print(f"  [{view_name}] done.")
-        return view_name, seg
-
-    segmented: Dict[str, Image.Image] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {
-            pool.submit(_gen_view, vn, img): vn
-            for vn, img in view_images.items()
-        }
-        for fut in concurrent.futures.as_completed(futures):
-            vn, seg = fut.result()
-            segmented[vn] = seg
-
-    # Assemble segmented grid (no labels — clean output for SegviGen)
-    seg_grid = _assemble_grid(
-        segmented, list(grid_views), cols=grid_cols,
-        tile_size=resolution, add_labels=False,
+    print(f"Pixmesh grid [3/3]: generating segmentation from '{gen_view}' view …")
+    seg_image = _gemini_generate_segmentation(
+        all_images[gen_view], updated_desc, color_table,
+        api_key=gemini_api_key, model=generate_model,
+        image_size=(resolution, resolution), bg_color_hex=bg_hex,
+        view_name=gen_view, pov_visibility=pov_visibility,
     )
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         out_path = f.name
-    seg_grid.save(out_path)
+    seg_image.save(out_path)
     print(f"Pixmesh grid: done → {out_path}")
     return out_path, updated_desc
