@@ -33,30 +33,56 @@ else
 fi
 
 # ─── 2. Build TRELLIS.2 env + CUDA extensions ────────────────────────────────
-# setup.sh creates a conda env named "trellis2" with Python 3.10 and builds:
-#   flash-attn, nvdiffrast, nvdiffrec, cumesh, o_voxel, flex_gemm
+# We create the conda env manually so we can pin torch > 2.7.1 (cu128 wheels).
+# TRELLIS.2's --new-env installs torch==2.6.0 which we skip by omitting it.
 # This step takes 30–60 minutes depending on your CPU.
-echo "[2/5] Building TRELLIS.2 environment (30–60 min) …"
+echo "[2/5] Creating conda env 'trellis2' with Python 3.10 …"
+eval "$(conda shell.bash hook)"
+
+# Remove stale env if present so we get a clean slate
+conda env remove -n trellis2 -y 2>/dev/null || true
+
+conda create -n trellis2 python=3.10 -y
+conda activate trellis2
+
+echo "[2/5] Installing PyTorch > 2.7.1 (cu128) …"
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+echo "[2/5] Building TRELLIS.2 CUDA extensions (30–60 min) …"
 cd TRELLIS.2
-bash setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel --flexgemm
+# --new-env is intentionally omitted — env + torch already installed above
+bash setup.sh --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel --flexgemm
 cd "$SCRIPT_DIR"
 
-# ─── 3. Activate and install SegviGen deps ───────────────────────────────────
+# ─── 3. Install SegviGen deps (env already active) ───────────────────────────
 echo "[3/5] Installing SegviGen dependencies …"
-eval "$(conda shell.bash hook)"
-conda activate trellis2
 
 # Remove any installed trellis2 package so SegviGen's local trellis2/ is used
 pip uninstall trellis2 -y 2>/dev/null || true
 find "$(python -c "import site; print('\n'.join(site.getsitepackages()))")" \
     -name "trellis2.pth" -delete 2>/dev/null || true
 
-pip install mathutils
+# mathutils 5.1.0 uses PyLong_AsInt (Python 3.12+) and _PyArg_CheckPositional
+# (removed in 3.13) — neither compiles cleanly on Python 3.10 without patching.
+pip download mathutils==5.1.0 --no-deps -d /tmp/mathutils_src/
+cd /tmp && tar -xzf mathutils_src/mathutils-5.1.0.tar.gz && cd mathutils-5.1.0
+# Patch 1: PyLong_AsInt → (int)PyLong_AsLong
+sed -i 's/PyLong_AsInt(/(int)PyLong_AsLong(/g' \
+    src/generic/py_capi_utils.hh src/generic/py_capi_utils.cc
+# Patch 2: guard _PyArg_CheckPositional for Python < 3.13
+sed -i 's|^int _PyArg_CheckPositional.*|#if PY_VERSION_HEX >= 0x030d0000\n&\n#endif|' \
+    src/generic/python_compat.hh
+sed -i 's|^/\* Removed in Python 3\.13\. \*/|/* Removed in Python 3.13. */\n#if PY_VERSION_HEX >= 0x030d0000|' \
+    src/generic/python_compat.cc
+printf '\n#endif /* PY_VERSION_HEX >= 0x030d0000 */\n' >> src/generic/python_compat.cc
+pip install . --no-build-isolation
+cd "$SCRIPT_DIR"
+
 pip install "transformers==4.57.6"
 
-# bpy 4.0.0 is not on PyPI; use 4.1.0 (API-compatible).
+# bpy: 4.0.0 is the latest available wheel (4.1.0 does not exist on PyPI).
 # Note: bpy has no Python 3.12 wheels — requires Python 3.10 or 3.11.
-pip install bpy==4.1.0 --extra-index-url https://download.blender.org/pypi/
+pip install bpy==4.0.0 --extra-index-url https://download.blender.org/pypi/
 
 pip install "gradio==6.0.1"
 pip install --upgrade Pillow
