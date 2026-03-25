@@ -61,6 +61,6 @@ if __name__ == "__main__":
     save_path = "./assets/cond.pth"
     rembg_model = BiRefNet(model_name="briaai/RMBG-2.0")
     rembg_model.cuda()
-    image_cond_model = DinoV3FeatureExtractor(model_name="facebook/dinov3-vitl16-pretrain-lvd1689m")
+    image_cond_model = DinoV3FeatureExtractor(model_name="athena2634/dinov3-vitl16-pretrain-lvd1689m")
     image_cond_model.cuda()
     img_to_cond(rembg_model, image_cond_model, image_path, save_path)

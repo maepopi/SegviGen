@@ -16,7 +16,7 @@ from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor
 
 rembg_model = BiRefNet(model_name="briaai/RMBG-2.0")
 rembg_model.cuda()
-image_cond_model = DinoV3FeatureExtractor(model_name="facebook/dinov3-vitl16-pretrain-lvd1689m")
+image_cond_model = DinoV3FeatureExtractor(model_name="athena2634/dinov3-vitl16-pretrain-lvd1689m")
 image_cond_model.cuda()
 
 shape_encoder = models.from_pretrained("microsoft/TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16").cuda().eval()

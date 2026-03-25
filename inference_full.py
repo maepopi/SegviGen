@@ -326,7 +326,7 @@ def inference(ckpt_path, item):
 
     rembg_model = BiRefNet(model_name="briaai/RMBG-2.0")
     rembg_model.cuda()
-    image_cond_model = DinoV3FeatureExtractor(model_name="facebook/dinov3-vitl16-pretrain-lvd1689m")
+    image_cond_model = DinoV3FeatureExtractor(model_name="athena2634/dinov3-vitl16-pretrain-lvd1689m")
     image_cond_model.cuda()
 
     process_glb_to_vxz(item['glb'], item['input_vxz'])

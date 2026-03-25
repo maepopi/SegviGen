@@ -26,7 +26,7 @@ from tqdm import tqdm
 import trellis2.modules.sparse as sp
 from trellis2 import models
 from trellis2.modules.utils import manual_cast
-from trellis2.pipelines.rembg import BiRefNet
+import rembg
 from trellis2.representations import MeshWithVoxel
 from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor
 from data_toolkit.bpy_render import render_from_transforms
@@ -38,7 +38,6 @@ _loaded_models = {}
 
 
 # ─── VRAM helpers ──────────────────────────────────────────────────────────────
-
 def _to_cuda(model):
     return model.cuda()
 
@@ -49,7 +48,6 @@ def _offload(model):
 
 
 # ─── Shared utilities ──────────────────────────────────────────────────────────
-
 def make_texture_square_pow2(img: Image.Image, target_size=None):
     w, h = img.size
     max_side = max(w, h)
@@ -189,7 +187,17 @@ def vxz_to_latent_slat(shape_encoder, shape_decoder, tex_encoder, vxz_path):
     return shape_slat, meshes, subs, tex_slat
 
 
-def preprocess_image(rembg_model, input):
+_rembg_session = None
+
+
+def _remove_background(image: Image.Image) -> Image.Image:
+    global _rembg_session
+    if _rembg_session is None:
+        _rembg_session = rembg.new_session("isnet-general-use")
+    return rembg.remove(image.convert("RGB"), session=_rembg_session)
+
+
+def preprocess_image(input):
     if input.mode != "RGB":
         bg = Image.new("RGB", input.size, (255, 255, 255))
         bg.paste(input, mask=input.split()[3])
@@ -208,7 +216,7 @@ def preprocess_image(rembg_model, input):
         output = input
     else:
         input = input.convert('RGB')
-        output = rembg_model(input)
+        output = _remove_background(input)
     output_np = np.array(output)
     alpha = output_np[:, :, 3]
     bbox = np.argwhere(alpha > 0.8 * 255)
@@ -275,7 +283,6 @@ def slat_to_glb(meshes, tex_voxels, resolution=512,
 
 
 # ─── Sampler (interactive) ─────────────────────────────────────────────────────
-
 class SamplerInteractive:
     def _inference_model(self, model, x_t, tex_slat, shape_slat, input_points, coords_len_list, t, cond):
         t = torch.tensor([t * 1000] * x_t.shape[0], dtype=torch.float32).cuda()
@@ -336,7 +343,6 @@ class SamplerInteractive:
 
 
 # ─── Sampler (full) ────────────────────────────────────────────────────────────
-
 class SamplerFull:
     def _inference_model(self, model, x_t, tex_slat, shape_slat, coords_len_list, t, cond):
         t = torch.tensor([t * 1000] * x_t.shape[0], dtype=torch.float32).cuda()
@@ -534,8 +540,7 @@ def load_base_models():
         "microsoft/TRELLIS.2-4B/ckpts/shape_dec_next_dc_f16c32_fp16").eval()
     tex_decoder = models.from_pretrained(
         "microsoft/TRELLIS.2-4B/ckpts/tex_dec_next_dc_f16c32_fp16").eval()
-    rembg_model = BiRefNet(model_name="briaai/RMBG-2.0")
-    image_cond_model = DinoV3FeatureExtractor(model_name="facebook/dinov3-vitl16-pretrain-lvd1689m")
+    image_cond_model = DinoV3FeatureExtractor(model_name="athena2634/dinov3-vitl16-pretrain-lvd1689m")
 
     pipeline_json_path = hf_hub_download(repo_id="microsoft/TRELLIS.2-4B", filename="pipeline.json")
     with open(pipeline_json_path, "r") as f:
@@ -547,7 +552,6 @@ def load_base_models():
         'tex_encoder': tex_encoder,
         'shape_decoder': shape_decoder,
         'tex_decoder': tex_decoder,
-        'rembg_model': rembg_model,
         'image_cond_model': image_cond_model,
         'pipeline_args': pipeline_args,
     }
@@ -622,9 +626,7 @@ def run_interactive(
     if rendered_img is not None:
         img_path = rendered_img
     image = Image.open(img_path)
-    _to_cuda(base['rembg_model'])
-    image = preprocess_image(base['rembg_model'], image)
-    _offload(base['rembg_model'])
+    image = preprocess_image(image)
     _to_cuda(base['image_cond_model'])
     cond = get_cond(base['image_cond_model'], [image])
     _offload(base['image_cond_model'])
@@ -716,9 +718,7 @@ def run_full(
     if rendered_img is not None:
         img_path = rendered_img
     image = Image.open(img_path)
-    _to_cuda(base['rembg_model'])
-    image = preprocess_image(base['rembg_model'], image)
-    _offload(base['rembg_model'])
+    image = preprocess_image(image)
     _to_cuda(base['image_cond_model'])
     cond = get_cond(base['image_cond_model'], [image])
     _offload(base['image_cond_model'])
@@ -779,9 +779,7 @@ def run_full_2d(
 
     print("Processing 2D guidance map …")
     image = Image.open(guidance_img)
-    _to_cuda(base['rembg_model'])
-    image = preprocess_image(base['rembg_model'], image)
-    _offload(base['rembg_model'])
+    image = preprocess_image(image)
     _to_cuda(base['image_cond_model'])
     cond = get_cond(base['image_cond_model'], [image])
     _offload(base['image_cond_model'])

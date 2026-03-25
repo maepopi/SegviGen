@@ -101,6 +101,10 @@ pip uninstall pillow-simd -y 2>/dev/null || true
 # This must be the last pip install so nothing can upgrade it back.
 pip install "Pillow>=10.0.0,<11.0.0"
 
+# rembg: replaces the gated briaai/RMBG-2.0 model — no HuggingFace token required.
+# Its default model (isnet-general-use) is downloaded automatically on first use.
+pip install "rembg[gpu]"
+
 # ─── 4. System libraries for OpenCV / OpenEXR ────────────────────────────────
 echo "[4/5] Installing system libraries (needs sudo) …"
 sudo apt-get install -y libsm6 libxrender1 libxext6 libopenexr-dev
@@ -113,6 +117,7 @@ import cumesh;   print("cumesh   OK")
 import trimesh;  print("trimesh  OK")
 import gradio;   print("gradio   OK")
 import bpy;      print("bpy      OK")
+import rembg;    print("rembg    OK")
 EOF
 
 mkdir -p "$SCRIPT_DIR/ckpt"
