@@ -24,7 +24,7 @@ export function SegTab({ title, description, runEndpoint, buildParams, extraInpu
         if (!segJob.result)
             return;
         await splitJob.run('/api/jobs/split', {
-            seg_glb_path: segJob.result,
+            in_glb_path: segJob.result,
             ...split,
         });
     }

@@ -1,21 +1,19 @@
 import { useState, useCallback } from 'react'
 import { uploadFile } from './api/client'
-import { InteractiveTab } from './components/tabs/InteractiveTab'
 import { FullTab }        from './components/tabs/FullTab'
 import { Full2DTab }      from './components/tabs/Full2DTab'
 import { Viewer3D }       from './components/Viewer3D'
-import { Upload, Layers, Grid2x2, Wand2 } from 'lucide-react'
+import { Upload, Grid2x2, Wand2 } from 'lucide-react'
 
-type TabId = 'interactive' | 'full' | 'full2d'
+type TabId = 'full' | 'full2d'
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
-  { id: 'interactive', label: 'Interactive',       icon: <Layers size={15} /> },
   { id: 'full',        label: 'Full',              icon: <Grid2x2 size={15} /> },
   { id: 'full2d',      label: 'Full + 2D Map',     icon: <Wand2 size={15} /> },
 ]
 
 export default function App() {
-  const [activeTab,    setActiveTab]    = useState<TabId>('interactive')
+  const [activeTab,    setActiveTab]    = useState<TabId>('full')
   const [uploadedPath, setUploadedPath] = useState<string | null>(null)
   const [uploadedName, setUploadedName] = useState<string | null>(null)
   const [dragOver,     setDragOver]     = useState(false)
@@ -103,7 +101,6 @@ export default function App() {
 
         {/* ── Main content ── */}
         <main className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'interactive' && <InteractiveTab glbPath={uploadedPath} />}
           {activeTab === 'full'        && <FullTab        glbPath={uploadedPath} />}
           {activeTab === 'full2d'      && <Full2DTab      glbPath={uploadedPath} />}
         </main>

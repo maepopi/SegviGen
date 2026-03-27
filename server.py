@@ -4,29 +4,48 @@ Run with:
     uvicorn server:app --host 0.0.0.0 --port 7860 --reload
 """
 
+import logging
 import os
 import shutil
 import tempfile
 import threading
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Suppress repetitive job-status polling from uvicorn access logs
+logging.getLogger("uvicorn.access").addFilter(
+    type("_PollFilter", (logging.Filter,), {
+        "filter": lambda self, r: "/api/jobs/" not in r.getMessage()
+    })()
+)
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import inference as inf
-import guidance_map as gmap
+import segvigen as sgv
+import util
+import rembg
+
+# ─── Background removal (app-level, not part of segvigen) ──────────────────────
+
+_rembg_session = None
+
+def _remove_bg(image):
+    global _rembg_session
+    if _rembg_session is None:
+        _rembg_session = rembg.new_session("isnet-general-use")
+    return rembg.remove(image.convert("RGB"), session=_rembg_session)
 
 # ─── Checkpoint auto-download ──────────────────────────────────────────────────
 
 _CKPT_DIR = Path(__file__).parent / "ckpt"
 _HF_REPO  = "fenghora/SegviGen"
 _CHECKPOINTS = [
-    "interactive_seg.ckpt",
     "full_seg.ckpt",
     "full_seg_w_2d_map.ckpt",
 ]
@@ -86,7 +105,10 @@ def _run_job(job_id: str, fn, *args, **kwargs):
         result = fn(*args, **kwargs)
         _jobs[job_id] = {"status": "done", "result": result, "error": None}
     except Exception as exc:
-        _jobs[job_id] = {"status": "error", "result": None, "error": str(exc)}
+        tb = traceback.format_exc()
+        print(tb, flush=True)  # full traceback visible in server logs
+        error_msg = f"{type(exc).__name__}: {exc}"
+        _jobs[job_id] = {"status": "error", "result": None, "error": error_msg}
 
 
 def _start_job(fn, *args, **kwargs) -> Dict[str, str]:
@@ -136,34 +158,16 @@ def get_job(job_id: str):
 
 @app.get("/api/presets/sampler")
 def sampler_presets():
-    return inf.SAMPLER_PRESETS
+    return sgv.SAMPLER_PRESETS
 
 
 @app.get("/api/presets/split")
 def split_presets():
-    return inf.SPLIT_PRESETS
+    from segvigen.presets import SPLIT_PRESETS
+    return SPLIT_PRESETS
 
 
 # ─── Inference endpoints ────────────────────────────────────────────────────────
-
-class InteractiveParams(BaseModel):
-    glb_path: str
-    ckpt_path: str
-    transforms_path: str
-    rendered_img: Optional[str] = None
-    points_str: str = "388 448 392"
-    steps: int = 25
-    rescale_t: float = 1.0
-    guidance_strength: float = 7.5
-    guidance_rescale: float = 0.0
-    guidance_interval_start: float = 0.0
-    guidance_interval_end: float = 1.0
-    decimation_target: int = 100_000
-    texture_size: int = 1024
-    remesh: bool = True
-    remesh_band: int = 1
-    remesh_project: int = 0
-
 
 class FullParams(BaseModel):
     glb_path: str
@@ -201,7 +205,7 @@ class Full2DParams(BaseModel):
 
 
 class SplitParams(BaseModel):
-    seg_glb_path: str
+    in_glb_path: str
     color_quant_step: int = 16
     palette_sample_pixels: int = 2_000_000
     palette_min_pixels: int = 500
@@ -232,30 +236,25 @@ class GuidanceParams(BaseModel):
     grid_cols: int = 2
 
 
-@app.post("/api/jobs/interactive")
-def start_interactive(params: InteractiveParams):
-    return _start_job(inf.run_interactive, **params.model_dump())
-
-
 @app.post("/api/jobs/full")
 def start_full(params: FullParams):
-    return _start_job(inf.run_full, **params.model_dump())
+    return _start_job(sgv.full.run, remove_bg_fn=_remove_bg, **params.model_dump())
 
 
 @app.post("/api/jobs/full_2d")
 def start_full_2d(params: Full2DParams):
-    return _start_job(inf.run_full_2d, **params.model_dump())
+    return _start_job(sgv.full_guided.run, remove_bg_fn=_remove_bg, **params.model_dump())
 
 
 @app.post("/api/jobs/split")
 def start_split(params: SplitParams):
-    return _start_job(inf.run_split, **params.model_dump())
+    return _start_job(util.split_glb_by_texture_palette_rgb, **params.model_dump())
 
 
 @app.post("/api/jobs/guidance")
 def start_guidance(params: GuidanceParams):
     def _run():
-        out_path, description = gmap.run_pixmesh(
+        out_path, description = util.run_pixmesh(
             glb_path=params.glb_path,
             transforms_path=params.transforms_path,
             gemini_api_key=params.gemini_api_key,

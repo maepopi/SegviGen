@@ -136,7 +136,7 @@ export function Full2DTab({ glbPath, initialGuidancePath }: Props) {
       </div>
 
       {/* ── Step 1: Generate guidance map ─────────────────────────────────── */}
-      <Accordion title="Step 1 — Generate Guidance Map (Pixmesh)">
+      <Accordion title="Step 1 — Generate Guidance Map (Pixmesh)" defaultOpen>
         <div className="flex flex-col gap-4">
           <p className="text-xs text-muted">
             Renders view(s) → VLM describes parts → assigns Kelly palette → image-gen flood-fills → outputs flat-color PNG.
@@ -182,7 +182,7 @@ export function Full2DTab({ glbPath, initialGuidancePath }: Props) {
             </div>
           )}
 
-          <Accordion title="Model Selection">
+          <Accordion title="Model Selection" defaultOpen>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Analyze model">
                 <Select value={analyzeModel} onChange={e => setAnalyzeModel(e.target.value)}>

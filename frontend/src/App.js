@@ -1,18 +1,16 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useCallback } from 'react';
 import { uploadFile } from './api/client';
-import { InteractiveTab } from './components/tabs/InteractiveTab';
 import { FullTab } from './components/tabs/FullTab';
 import { Full2DTab } from './components/tabs/Full2DTab';
 import { Viewer3D } from './components/Viewer3D';
-import { Upload, Layers, Grid2x2, Wand2 } from 'lucide-react';
+import { Upload, Grid2x2, Wand2 } from 'lucide-react';
 const TABS = [
-    { id: 'interactive', label: 'Interactive', icon: _jsx(Layers, { size: 15 }) },
     { id: 'full', label: 'Full', icon: _jsx(Grid2x2, { size: 15 }) },
     { id: 'full2d', label: 'Full + 2D Map', icon: _jsx(Wand2, { size: 15 }) },
 ];
 export default function App() {
-    const [activeTab, setActiveTab] = useState('interactive');
+    const [activeTab, setActiveTab] = useState('full');
     const [uploadedPath, setUploadedPath] = useState(null);
     const [uploadedName, setUploadedName] = useState(null);
     const [dragOver, setDragOver] = useState(false);
@@ -38,5 +36,5 @@ export default function App() {
                 ${dragOver ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/50 hover:bg-hover'}`, children: [_jsx("input", { type: "file", accept: ".glb,.obj,.ply", className: "hidden", onChange: onFileChange }), _jsx(Upload, { size: 16, className: "text-muted shrink-0" }), _jsx("p", { className: "text-xs text-muted leading-tight truncate", children: uploadedName ?? 'Drop GLB / OBJ / PLY' })] }), _jsx("div", { className: "mt-2 rounded-xl overflow-hidden border border-border", style: { height: '200px' }, children: _jsx(Viewer3D, { filePath: uploadedPath, compact: true }) })] }), _jsxs("div", { children: [_jsx("p", { className: "text-[10px] font-semibold uppercase tracking-widest text-dim mb-2", children: "Mode" }), _jsx("nav", { className: "flex flex-col gap-1", children: TABS.map(tab => (_jsxs("button", { onClick: () => setActiveTab(tab.id), className: `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-all
                     ${activeTab === tab.id
                                                 ? 'bg-accent/10 text-accent font-semibold'
-                                                : 'text-muted hover:bg-hover hover:text-white'}`, children: [tab.icon, tab.label] }, tab.id))) })] }), _jsxs("div", { className: "mt-auto text-[11px] text-dim leading-relaxed", children: ["Base models cached on first run.", _jsx("br", {}), "Checkpoints cached per path."] })] }), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [activeTab === 'interactive' && _jsx(InteractiveTab, { glbPath: uploadedPath }), activeTab === 'full' && _jsx(FullTab, { glbPath: uploadedPath }), activeTab === 'full2d' && _jsx(Full2DTab, { glbPath: uploadedPath })] })] })] }));
+                                                : 'text-muted hover:bg-hover hover:text-white'}`, children: [tab.icon, tab.label] }, tab.id))) })] }), _jsxs("div", { className: "mt-auto text-[11px] text-dim leading-relaxed", children: ["Base models cached on first run.", _jsx("br", {}), "Checkpoints cached per path."] })] }), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [activeTab === 'full' && _jsx(FullTab, { glbPath: uploadedPath }), activeTab === 'full2d' && _jsx(Full2DTab, { glbPath: uploadedPath })] })] })] }));
 }

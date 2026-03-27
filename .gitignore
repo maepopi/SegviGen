@@ -34,6 +34,7 @@ flagged/
 tmp/
 frontend/node_modules/
 frontend/dist/
+static/assets/
 *.pyc
 __pycache__/
 *.egg-info/

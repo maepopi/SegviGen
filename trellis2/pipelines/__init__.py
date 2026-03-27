@@ -5,7 +5,7 @@ __attributes = {
     "Trellis2TexturingPipeline": "trellis2_texturing",
 }
 
-__submodules = ['samplers', 'rembg']
+__submodules = ['samplers']
 
 __all__ = list(__attributes.keys()) + __submodules
 
@@ -47,6 +47,6 @@ def from_pretrained(path: str):
 
 # For PyLance
 if __name__ == '__main__':
-    from . import samplers, rembg
+    from . import samplers
     from .trellis2_image_to_3d import Trellis2ImageTo3DPipeline
     from .trellis2_texturing import Trellis2TexturingPipeline
