@@ -10,12 +10,20 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
-    "torch>=2.0",
-    "numpy",
-    "trimesh[easy]",
-    "Pillow",
-    "tqdm",
+    # Pinned to match the pixmesh conda environment — pip must not upgrade these.
+    "torch==2.7.0",
+    "torchvision==0.22.0",
+    "numpy==1.26.4",
+    "tqdm==4.67.1",
+    "Pillow==11.2.1",
+    # Not pinned but already present in the env; listed so the package is declared.
     "huggingface-hub",
+    "transformers==4.57.6",
+    "triton==3.6.0",
+    "tokenizers==0.22.0",
+    "trimesh[easy]",
+    "easydict",
+    "safetensors",
 ]
 
 [project.optional-dependencies]
@@ -28,11 +36,15 @@ Repository = "https://github.com/maepopi/SegviGen-app"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["segvigen*"]
+include = ["segvigen*", "trellis2*", "o_voxel*", "cumesh*", "flex_gemm*"]
 
 [tool.setuptools.package-data]
 # Exclude checkpoint files — they are downloaded at runtime from HuggingFace.
 segvigen = ["py.typed"]
+# Pre-compiled CUDA extensions — platform-specific (Linux x86_64, Python 3.10).
+o_voxel = ["*.so"]
+cumesh = ["*.so"]
+flex_gemm = ["kernels/*.so"]
 
 [tool.setuptools.exclude-package-data]
 segvigen = ["ckpt/*.ckpt"]
