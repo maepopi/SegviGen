@@ -41,15 +41,27 @@ export function Full2DTab({ glbPath, initialGuidancePath }: Props) {
 
   const guidanceJob = useJob<GuidanceResult>()
 
-  // ── Active guidance path (used for segmentation) ───────────────────────────
-  const [guidancePath, setGuidancePath] = useState<string | null>(initialGuidancePath ?? null)
-  const pathRef    = useRef<HTMLInputElement>(null)
-  const previewRef = useRef<HTMLImageElement>(null)
+  // ── Active guidance paths (used for segmentation) ──────────────────────────
+  // The model conditions on every map at once, so any number of views works.
+  const [guidancePaths, setGuidancePaths] = useState<string[]>(
+    initialGuidancePath ? [initialGuidancePath] : [])
+  const [newPath, setNewPath] = useState('')
+  const [uploadingGuidance, setUploadingGuidance] = useState(false)
+  const guidanceFileRef = useRef<HTMLInputElement>(null)
 
-  // Auto-fill when guidance map is generated
+  // Append the generated map when one is produced
   useEffect(() => {
-    if (guidanceJob.result) setGuidancePath(guidanceJob.result.image_path)
+    const p = guidanceJob.result?.image_path
+    if (p) setGuidancePaths(prev => (prev.includes(p) ? prev : [...prev, p]))
   }, [guidanceJob.result])
+
+  function addPath(p: string) {
+    const t = p.trim()
+    if (t) setGuidancePaths(prev => (prev.includes(t) ? prev : [...prev, t]))
+  }
+  function removePath(p: string) {
+    setGuidancePaths(prev => prev.filter(x => x !== p))
+  }
 
   function toggleView(v: View) {
     setViews(prev => ({ ...prev, [v]: !prev[v] }))
@@ -75,18 +87,19 @@ export function Full2DTab({ glbPath, initialGuidancePath }: Props) {
     })
   }
 
-  async function pickGuidance() {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.png,.jpg'
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      const serverPath = await uploadFile(file)
-      setGuidancePath(serverPath)
-      if (previewRef.current) previewRef.current.src = URL.createObjectURL(file)
+  async function onGuidanceSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    if (files.length === 0) return
+    setUploadingGuidance(true)
+    try {
+      const paths = await Promise.all(files.map(f => uploadFile(f)))
+      setGuidancePaths(prev => [...prev, ...paths.filter(p => !prev.includes(p))])
+    } catch (err) {
+      alert(`Upload failed: ${err}`)
+    } finally {
+      setUploadingGuidance(false)
     }
-    input.click()
   }
 
   // ── Segmentation extraInputs ───────────────────────────────────────────────
@@ -99,28 +112,51 @@ export function Full2DTab({ glbPath, initialGuidancePath }: Props) {
       <Field label="Checkpoint (.ckpt)">
         <TextInput value={segCkpt} onChange={e => setSegCkpt(e.target.value)} />
       </Field>
-      <Field label="2D Guidance Map">
+      <Field label="2D Guidance Map(s)">
         <div className="flex gap-2">
           <TextInput
-            ref={pathRef}
-            placeholder="Generate above or browse…"
-            value={guidancePath ?? ''}
-            onChange={e => setGuidancePath(e.target.value)}
+            placeholder="Generate above, type a path + Enter, or browse…"
+            value={newPath}
+            onChange={e => setNewPath(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); addPath(newPath); setNewPath('') }
+            }}
           />
           <button
-            onClick={pickGuidance}
-            className="px-3 py-2 bg-hover border border-border rounded-lg text-xs text-muted hover:text-white hover:border-accent transition-all whitespace-nowrap"
+            onClick={() => guidanceFileRef.current?.click()}
+            disabled={uploadingGuidance}
+            className="px-3 py-2 bg-hover border border-border rounded-lg text-xs text-muted hover:text-white hover:border-accent transition-all whitespace-nowrap disabled:opacity-50"
           >
-            Browse
+            {uploadingGuidance ? 'Uploading…' : 'Browse'}
           </button>
-        </div>
-        {guidancePath && (
-          <img
-            ref={previewRef}
-            src={fileUrl(guidancePath)}
-            className="mt-2 rounded-lg border border-border max-h-20 object-contain bg-input"
-            alt="guidance preview"
+          <input
+            ref={guidanceFileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={onGuidanceSelected}
           />
+        </div>
+        {guidancePaths.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {guidancePaths.map(p => (
+              <div key={p} className="relative group">
+                <img
+                  src={fileUrl(p)}
+                  className="rounded-lg border border-border max-h-20 object-contain bg-input"
+                  alt="guidance preview"
+                />
+                <button
+                  onClick={() => removePath(p)}
+                  title="Remove"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-bg border border-border text-muted hover:text-white hover:border-accent text-xs leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </Field>
     </>
@@ -251,7 +287,7 @@ export function Full2DTab({ glbPath, initialGuidancePath }: Props) {
           buildParams={(sampler: SamplerParams) => ({
             glb_path:     segGlb,
             ckpt_path:    segCkpt,
-            guidance_img: guidancePath ?? '',
+            guidance_img: guidancePaths,
             ...sampler,
           })}
           extraInputs={segInputs}

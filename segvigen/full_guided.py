@@ -19,6 +19,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
+from typing import List, Union
 
 import torch
 from PIL import Image
@@ -88,7 +89,7 @@ class FullGuidedSegmenter:
     def run(
         self,
         glb_path: str,
-        guidance_img: str,
+        guidance_img: Union[str, List[str]],
         remove_bg_fn=None,
         steps: int = 25,
         rescale_t: float = 1.0,
@@ -109,7 +110,8 @@ class FullGuidedSegmenter:
         glb_path:
             Input GLB file path.
         guidance_img:
-            Path to the flat-color guidance PNG.
+            Path to the flat-color guidance PNG, or a list of paths to
+            condition on several views at once.
         steps, rescale_t, guidance_strength, guidance_rescale,
         guidance_interval_start, guidance_interval_end:
             Diffusion sampler parameters.
@@ -139,11 +141,12 @@ class FullGuidedSegmenter:
                 shape_slat, meshes, subs, tex_slat = vxz_to_latent_slat(
                     base['shape_encoder'], base['shape_decoder'], base['tex_encoder'], vxz_path)
 
-                print("Processing 2D guidance map …")
-                image = Image.open(guidance_img)
-                image = preprocess_image(image, remove_bg_fn=remove_bg_fn)
+                guidance_paths = [guidance_img] if isinstance(guidance_img, str) else list(guidance_img)
+                print(f"Processing {len(guidance_paths)} 2D guidance map(s) …")
+                images = [preprocess_image(Image.open(p), remove_bg_fn=remove_bg_fn)
+                          for p in guidance_paths]
                 _to_cuda(base['image_cond_model'])
-                cond = get_cond(base['image_cond_model'], [image])
+                cond = get_cond(base['image_cond_model'], images)
                 _offload(base['image_cond_model'])
 
                 sampler_params = build_sampler_params(

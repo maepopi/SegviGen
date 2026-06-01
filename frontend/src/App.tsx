@@ -2,14 +2,16 @@ import { useState, useCallback } from 'react'
 import { uploadFile } from './api/client'
 import { FullTab }        from './components/tabs/FullTab'
 import { Full2DTab }      from './components/tabs/Full2DTab'
+import { ImagesTab }      from './components/tabs/ImagesTab'
 import { Viewer3D }       from './components/Viewer3D'
-import { Upload, Grid2x2, Wand2 } from 'lucide-react'
+import { Upload, Grid2x2, Wand2, FileJson } from 'lucide-react'
 
-type TabId = 'full' | 'full2d'
+type TabId = 'full' | 'full2d' | 'images'
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'full',        label: 'Full',              icon: <Grid2x2 size={15} /> },
   { id: 'full2d',      label: 'Full + 2D Map',     icon: <Wand2 size={15} /> },
+  { id: 'images',      label: 'Images → Parts JSON', icon: <FileJson size={15} /> },
 ]
 
 export default function App() {
@@ -103,6 +105,7 @@ export default function App() {
         <main className="flex-1 overflow-y-auto p-6">
           {activeTab === 'full'        && <FullTab        glbPath={uploadedPath} />}
           {activeTab === 'full2d'      && <Full2DTab      glbPath={uploadedPath} />}
+          {activeTab === 'images'      && <ImagesTab />}
         </main>
       </div>
     </div>

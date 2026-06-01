@@ -13,7 +13,7 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 # Suppress repetitive job-status polling from uvicorn access logs
 logging.getLogger("uvicorn.access").addFilter(
@@ -178,7 +178,7 @@ class FullParams(BaseModel):
     glb_path: str
     ckpt_path: str
     transforms_path: str
-    rendered_img: Optional[str] = None
+    rendered_img: Optional[Union[str, List[str]]] = None
     steps: int = 25
     rescale_t: float = 1.0
     guidance_strength: float = 7.5
@@ -195,7 +195,7 @@ class FullParams(BaseModel):
 class Full2DParams(BaseModel):
     glb_path: str
     ckpt_path: str
-    guidance_img: str
+    guidance_img: Union[str, List[str]]
     steps: int = 25
     rescale_t: float = 1.0
     guidance_strength: float = 7.5
@@ -241,6 +241,13 @@ class GuidanceParams(BaseModel):
     grid_cols: int = 2
 
 
+class PartsJsonParams(BaseModel):
+    image_paths: List[str]
+    gemini_api_key: str
+    analyze_model: str = "gemini-2.5-flash"
+    grid_cols: int = 2
+
+
 @app.post("/api/jobs/full")
 def start_full(params: FullParams):
     seg = _get_segmenter(sgv.FullSegmenter, params.ckpt_path)
@@ -277,6 +284,19 @@ def start_guidance(params: GuidanceParams):
             grid_cols=params.grid_cols,
         )
         return {"image_path": out_path, "description": description}
+    return _start_job(_run)
+
+
+@app.post("/api/jobs/parts_json")
+def start_parts_json(params: PartsJsonParams):
+    def _run():
+        description = util.describe_parts_from_images(
+            image_paths=params.image_paths,
+            gemini_api_key=params.gemini_api_key,
+            analyze_model=params.analyze_model,
+            grid_cols=params.grid_cols,
+        )
+        return {"description": description}
     return _start_job(_run)
 
 

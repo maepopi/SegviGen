@@ -16,7 +16,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Union
 
 import torch
 from PIL import Image
@@ -87,7 +87,7 @@ class FullSegmenter:
         self,
         glb_path: str,
         transforms_path: str,
-        rendered_img: Optional[str] = None,
+        rendered_img: Optional[Union[str, List[str]]] = None,
         remove_bg_fn=None,
         steps: int = 25,
         rescale_t: float = 1.0,
@@ -110,7 +110,8 @@ class FullSegmenter:
         transforms_path:
             Path to ``transforms.json`` used for rendering the conditioning view.
         rendered_img:
-            Optional pre-rendered PNG to use instead of the auto-rendered view.
+            Optional pre-rendered PNG (or list of PNGs) to use instead of the
+            auto-rendered view.  Several images condition on multiple views.
         steps, rescale_t, guidance_strength, guidance_rescale,
         guidance_interval_start, guidance_interval_end:
             Diffusion sampler parameters.
@@ -150,14 +151,17 @@ class FullSegmenter:
                 shape_slat, meshes, subs, tex_slat = vxz_to_latent_slat(
                     base['shape_encoder'], base['shape_decoder'], base['tex_encoder'], vxz_path)
 
-                print("Rendering conditioning image …")
-                render_from_transforms(glb_path, transforms_path, img_path)
                 if rendered_img is not None:
-                    img_path = rendered_img
-                image = Image.open(img_path)
-                image = preprocess_image(image, remove_bg_fn=remove_bg_fn)
+                    img_paths = [rendered_img] if isinstance(rendered_img, str) else list(rendered_img)
+                else:
+                    print("Rendering conditioning image …")
+                    render_from_transforms(glb_path, transforms_path, img_path)
+                    img_paths = [img_path]
+                print(f"Conditioning on {len(img_paths)} image(s) …")
+                images = [preprocess_image(Image.open(p), remove_bg_fn=remove_bg_fn)
+                          for p in img_paths]
                 _to_cuda(base['image_cond_model'])
-                cond = get_cond(base['image_cond_model'], [image])
+                cond = get_cond(base['image_cond_model'], images)
                 _offload(base['image_cond_model'])
 
                 sampler_params = build_sampler_params(

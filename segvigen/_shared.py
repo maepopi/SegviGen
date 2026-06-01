@@ -241,10 +241,18 @@ def preprocess_image(input: Image.Image, remove_bg_fn=None) -> Image.Image:
     return output
 
 
-def get_cond(image_cond_model, image):
-    """Extract DINOv3 conditioning features from an image."""
+def get_cond(image_cond_model, images):
+    """Extract DINOv3 conditioning features from one or more images.
+
+    ``images`` is a list of preprocessed PIL images.  The feature extractor
+    returns one ``(num_patches, D)`` token block per image; we concatenate them
+    along the token axis so a single object is conditioned on every view at
+    once — ``cond`` has shape ``(1, num_images * num_patches, D)``.  With a
+    single image this is identical to the previous ``(1, num_patches, D)``.
+    """
     image_cond_model.image_size = 512
-    cond = image_cond_model(image)
+    feats = image_cond_model(images)                  # (N, num_patches, D)
+    cond = feats.reshape(1, -1, feats.shape[-1])      # (1, N * num_patches, D)
     neg_cond = torch.zeros_like(cond)
     return {'cond': cond, 'neg_cond': neg_cond}
 

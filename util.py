@@ -29,7 +29,6 @@ from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import rembg
 import requests
 import trimesh
 from PIL import Image, ImageDraw
@@ -45,7 +44,12 @@ _rembg_session = None
 
 
 def remove_bg(image: Image.Image) -> Image.Image:
-    """Remove the background from *image* using the isnet-general-use model."""
+    """Remove the background from *image* using the isnet-general-use model.
+
+    ``rembg`` is imported lazily so the server can start (and model-free modes
+    such as Images → Parts JSON can run) even when it is not installed.
+    """
+    import rembg
     global _rembg_session
     if _rembg_session is None:
         _rembg_session = rembg.new_session("isnet-general-use")
@@ -1031,3 +1035,48 @@ def generate_guidance_map(
     seg_image.save(out_path)
     print(f"Pixmesh grid: done → {out_path}")
     return out_path, updated_desc
+
+
+def describe_parts_from_images(
+    image_paths: List[str],
+    gemini_api_key: str,
+    analyze_model: str = "gemini-2.5-flash",
+    grid_cols: int = 2,
+    grid_tile: int = 512,
+) -> Dict[str, Any]:
+    """Describe the parts visible in one or more images.
+
+    Model-free analysis only: the provided images stand in for rendered views.
+    With one image the description is derived from it directly; with several,
+    they are assembled into a labelled grid for the analysis pass.  Each part is
+    given a distinct color from the palette.
+
+    Returns the assembly-tree dict (``scene_description`` + per-part
+    ``name`` / ``base_color_hex`` / ``material``).  No guidance-map image and no
+    3D segmentation are produced.
+    """
+    if not gemini_api_key or not gemini_api_key.strip():
+        raise ValueError("A Gemini API key is required.")
+    if not image_paths:
+        raise ValueError("At least one image is required.")
+
+    images = [Image.open(p).convert("RGB") for p in image_paths]
+
+    if len(images) == 1:
+        print("Parts JSON: describing image …")
+        description = _gemini_describe(images[0], gemini_api_key, model=analyze_model)
+    else:
+        print(f"Parts JSON: describing {len(images)} images via grid …")
+        labels = [f"view{i + 1}" for i in range(len(images))]
+        describe_grid = _assemble_grid(
+            dict(zip(labels, images)), labels, cols=max(1, grid_cols),
+            tile_size=grid_tile, add_labels=True,
+        )
+        description = _gemini_describe(
+            describe_grid, gemini_api_key, model=analyze_model, is_grid=True,
+        )
+    print(f"  → {description.get('scene_description', '?')}")
+
+    updated_desc, color_table = _assign_palette(description)
+    print(f"  → {len(color_table)} parts: {', '.join(color_table.keys())}")
+    return updated_desc
